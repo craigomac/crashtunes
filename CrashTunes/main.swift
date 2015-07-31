@@ -63,14 +63,14 @@ class FMSynthesizerNote: AKNote {
 
 struct Thread {
     var name:String
-    var addresses:[String]
+    var addresses:[CUnsignedLongLong]
     var crashed:Bool
 }
 
 let threadNameExpression  = NSRegularExpression(pattern: "^Thread [0-9]+.*:\\s+(.*)$", options: nil, error: nil)!
 let addressExpression = NSRegularExpression(pattern: "^[0-9]+\\s.*(0x000000[0-9a-f]*)\\s.*\\+.*$", options: nil, error: nil)!
 
-var instrument = PluckedString()
+var instrument = Mandolin()
 AKOrchestra.addInstrument(instrument)
 AKOrchestra.start()
 
@@ -82,7 +82,7 @@ for argument in Process.arguments[1 ..< Process.arguments.count] {
         var lines = report.componentsSeparatedByCharactersInSet(NSCharacterSet.newlineCharacterSet())
 
         var threadName:String? = nil
-        var addresses:[String] = []
+        var addresses:[CUnsignedLongLong] = []
         var threadCrashed = false
         var anyThreadCrashed = false
 
@@ -103,7 +103,12 @@ for argument in Process.arguments[1 ..< Process.arguments.count] {
             
             if let addressMatch = addressExpression.matchesInString(line, options: nil, range: range).first as? NSTextCheckingResult where threadName != nil {
                 var address = (line as NSString).substringWithRange(addressMatch.rangeAtIndex(1))
-                addresses.append(address)
+
+                let scanner = NSScanner(string: address)
+                var hexValue: CUnsignedLongLong = 0
+                if scanner.scanHexLongLong(&hexValue) {
+                    addresses.append(hexValue)
+                }
             }
         }
         
@@ -113,32 +118,40 @@ for argument in Process.arguments[1 ..< Process.arguments.count] {
 
         // For now, focus on thread that crashed
         for thread in threads {
-           if thread.crashed || !anyThreadCrashed {
+//           if thread.crashed || !anyThreadCrashed {
+            var minAddress:CUnsignedLongLong = 100000000000
                 for address in thread.addresses {
-                    let scanner = NSScanner(string: address)
-                    var hexValue: CUnsignedLongLong = 0
-                    if scanner.scanHexLongLong(&hexValue) {
-                        let frequency = Float(hexValue / 12000000) // logf( Float(hexValue) ) * 100
-                        let color = Float(0.5)
-                        
-                        println("\(address): \(hexValue) = \(frequency)")
+                    if address < minAddress {
+                        minAddress = address
+                    }
+                }
+            
+                for address in thread.addresses {
+                    let addressOffset = address - minAddress
+                    let frequency = Float(addressOffset / 100000) // logf( Float(hexValue) ) * 100
+                    let color = Float(0.5)
+                    
+                    if frequency < 5 {
+                        continue
+                    }
+
+                    
+                    println("\(address): = \(frequency)")
 
 //                        let note = FMSynthesizerNote(frequency: frequency, color: color)
 //                        fmSynthesizer.playNote(note)
-                        
-                        let note = PluckedStringNote()
-                        note.frequency.setValue(frequency)
 
-                        instrument.playNote(note)
-                        NSThread.sleepForTimeInterval(0.2)
-                        instrument.stop()
-                        NSThread.sleepForTimeInterval(0.1)
-                        
-                    }
+                    let note = MandolinNote()
+                    note.frequency.setValue(frequency)
+
+                    instrument.playNote(note)
+                    NSThread.sleepForTimeInterval(0.2)
+                    instrument.stop()
+                    NSThread.sleepForTimeInterval(0.1)
                 }
             NSThread.sleepForTimeInterval(0.5)
                 
-           }
+//           }
         }
         
         NSThread.sleepForTimeInterval(1.0)
